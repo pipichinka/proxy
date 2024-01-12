@@ -13,14 +13,18 @@ item_t::~item_t(){
     pthread_rwlock_destroy(&rw_lock);
 }
 
-
+/*
+ * Не используется (?)
+ * */
 void item_t::pin(){
     pthread_rwlock_wrlock(&rw_lock);
     ++pin_count;
     pthread_rwlock_unlock(&rw_lock);
 }
 
-
+/*
+ * А это используется (?)
+ * */
 void item_t::un_pin(int fd){
     pthread_rwlock_wrlock(&rw_lock);
     if (pin_count > 0){
@@ -73,7 +77,9 @@ int item_t::get_data(std::string& dst, size_t offset, size_t limit, const wait_c
 }
 
 
-
+/*
+ * completed
+ * */
 void item_t::set_complited(bool val) noexcept{
     pthread_rwlock_wrlock(&rw_lock);
     compleated = val;

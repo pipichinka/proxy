@@ -55,6 +55,10 @@ int main(int argc, char** argv){
 
 
     for(;;){
+        /*
+         * Если ты всё равно адрес не используешь для определения источника соединения,
+         * его можно не указывать, передав просто NULL
+         * */
         struct sockaddr_in addr;
         unsigned int addr_len = sizeof(addr);
         int sock_fd = accept(sock, (struct sockaddr*) &addr, &addr_len);

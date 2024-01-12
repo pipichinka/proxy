@@ -119,12 +119,20 @@ void client_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
         return;
     }
 
+    /*
+     * А ты уверен, что read() не заблокируется с таким размером буфера?
+     *
+     * Если да, жду пруф
+     * */
     char read_buffer[MAX_ONE_TIME_READ];
     int res = read(fd, read_buffer, MAX_ONE_TIME_READ);
     if (res == 0){
         throw std::runtime_error("client closed socket");
     }
     else if (res == -1){
+        /*
+         * А откуда EWOULDBLOCK? Ты же не делаешь сокет неблокирующимся?
+         * */
         if (errno == EAGAIN || errno == EWOULDBLOCK){
             return;
         }
@@ -240,7 +248,13 @@ server_connection_t::server_connection_t(std::string&& host, std::string&& reque
     hints.ai_family = AF_INET;   
     hints.ai_socktype = SOCK_STREAM; 
     hints.ai_flags = 0;
-    hints.ai_protocol = 0;          
+    hints.ai_protocol = 0;
+    /*
+     * А нет, всё же ты делаешь их неблокирующими.
+     *
+     * Так не делаем тут, сокеты должны быть блокирующими,
+     * но обрабатываться так, чтобы никогда не блокироваться на операциях чтения/записи
+     * */
     fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
 
 

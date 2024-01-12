@@ -17,6 +17,9 @@ thread_pool_t::thread_pool_t(size_t num_threads): num_threads(num_threads), next
     for (size_t i = 0; i < num_threads; ++i){
         int res = pthread_create(thread_ids + i, NULL, thread_func, proxy_servers + i);
         if (res != 0){
+            /*
+             * Есть, конечно, strerror_r(), но да ладно..
+             * */
             errno = res;
             perror("init thread_poll");
             abort();
@@ -29,6 +32,10 @@ thread_pool_t::~thread_pool_t(){
         pthread_cancel(thread_ids[i]);
         pthread_join(thread_ids[i], NULL);
     }
+
+    /*
+     * Если для выделения используешь new[], освобождать нужно через delete[]
+     * */
     delete thread_ids;
     delete proxy_servers;
 }

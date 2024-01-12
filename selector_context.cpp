@@ -62,7 +62,9 @@ int selector_context_t::do_select() noexcept{
 }
 
 
-
+/*
+ * Не используется
+ * */
 void wait_context_t::notify() noexcept{
     selector_context->register_file_descriptor(fd, WRITE);
 }

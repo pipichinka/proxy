@@ -122,6 +122,9 @@ public:
     //thread_safe
     void add_server_socket(int fd);
 
+    /*
+     * cliend...
+     * */
     void change_cliend_sock_mod(int fd, uint32_t op);
     void start_server_loop();
 
