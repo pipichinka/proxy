@@ -63,7 +63,7 @@ void proxy_server_t::add_client_socket(int fd){
 }
 
 
-void proxy_server_t::change_cliend_sock_mod(int fd, uint32_t op){
+void proxy_server_t::change_sock_mod(int fd, uint32_t op){
     selector_context.change_descriptor_mode(fd, op);
 }
 
@@ -100,6 +100,7 @@ void change_http_version_in_message(std::string& request, size_t http_ver_index,
 
 void client_connection_t::change_to_write_stage(proxy_server_t& server){
     auto item = storage->get_item(host + url);
+    item.second->pin();
     if (!item.second->is_started()){
         bool res = item.second->set_started(true);
         if (!res){
@@ -108,7 +109,7 @@ void client_connection_t::change_to_write_stage(proxy_server_t& server){
         }
     }
     storage_item = item.second;
-    server.change_cliend_sock_mod(fd, WRITE);
+    server.change_sock_mod(fd, WRITE);
     stage = client_stages::CL_SEND_ANSWER;
 }
 
@@ -231,7 +232,7 @@ client_connection_t::~client_connection_t(){
 server_connection_t::server_connection_t(std::string&& host, std::string&& request, std::pair<std::string, std::shared_ptr<item_t>>& storage_item, proxy_server_t& server):
     request_to_send(request), request_offset(0), storage_item(storage_item), content_len(-1), content_offset(0),  host(host), http_code(0), stage(SV_CONNECT) {
     
-
+    
     struct addrinfo hints;
     struct addrinfo *result;
     int s;
@@ -269,7 +270,7 @@ server_connection_t::server_connection_t(std::string&& host, std::string&& reque
 
 server_connection_t::~server_connection_t(){
     close(fd);
-    storage_item.second->set_complited(true);
+    storage_item.second->set_completed(true);
     if (http_code != 200){
         storage->remove_item(storage_item.first);
     }
@@ -310,7 +311,7 @@ void server_connection_t::process_output(proxy_server_t& server){
     if (request_offset == request_to_send.length()){
         request_to_send.clear();
         stage = server_stages::SV_READ_FIRST_LINE;
-        server.change_cliend_sock_mod(fd, READ);
+        server.change_sock_mod(fd, READ);
     }
 }
 
@@ -410,7 +411,7 @@ void server_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
         storage_item.second->put_data(current_data);
 
         if (static_cast<ssize_t> (content_offset) == content_len){
-            storage_item.second->set_complited(true);
+            storage_item.second->set_completed(true);
             throw std::runtime_error("server connection finished downloading data");
         }
     }

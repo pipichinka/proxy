@@ -12,7 +12,7 @@
 class item_t{
     std::string data;
     bool started;
-    bool compleated;
+    bool completed;
     pthread_rwlock_t rw_lock;
     int pin_count;
     std::vector<wait_context_t> waiting_clients;
@@ -27,8 +27,8 @@ public:
         return -1 if offset == data.lenght && complited
     */
     int get_data(std::string& dst, size_t offset, size_t limit, const wait_context_t& wait_context) noexcept; 
-    void set_complited(bool val) noexcept;
-    bool is_compleated() const noexcept {return compleated;}
+    void set_completed(bool val) noexcept;
+    bool is_compleated() const noexcept {return completed;}
     bool set_started(bool val) noexcept;
     bool is_started() const noexcept {return started;}
     ~item_t();

@@ -4,7 +4,7 @@
 storage_t* storage; // for extern in storage.hpp
 
 
-item_t::item_t(): started(false) ,compleated(false), pin_count(0){
+item_t::item_t(): started(false) ,completed(false), pin_count(0){
     pthread_rwlock_init(&rw_lock, NULL);
 }
 
@@ -45,7 +45,7 @@ void item_t::put_data(const std::string& s) noexcept{
     data.append(s);
     size_t len = waiting_clients.size();
     for (size_t i = 0; i < len; ++i){
-        waiting_clients[i].get_sel_con()->change_descriptor_mode(waiting_clients[i].get_fd(), WRITE);
+        waiting_clients[i].notify();
     }
     waiting_clients.clear();
     pthread_rwlock_unlock(&rw_lock);
@@ -54,7 +54,7 @@ void item_t::put_data(const std::string& s) noexcept{
 
 int item_t::get_data(std::string& dst, size_t offset, size_t limit, const wait_context_t& wait_context) noexcept{
     pthread_rwlock_wrlock(&rw_lock);
-    if (data.length() == offset && compleated){
+    if (data.length() == offset && completed){
         pthread_rwlock_unlock(&rw_lock);
         return -1;
     }
@@ -74,13 +74,13 @@ int item_t::get_data(std::string& dst, size_t offset, size_t limit, const wait_c
 
 
 
-void item_t::set_complited(bool val) noexcept{
+void item_t::set_completed(bool val) noexcept{
     pthread_rwlock_wrlock(&rw_lock);
-    compleated = val;
-    if (compleated){
+    completed = val;
+    if (completed){
         size_t len = waiting_clients.size();
         for (size_t i = 0; i < len; ++i){
-            waiting_clients[i].get_sel_con()->change_descriptor_mode(waiting_clients[i].get_fd(), WRITE);
+            waiting_clients[i].notify();
         }
         waiting_clients.clear();
     }
@@ -128,5 +128,7 @@ void init_global_storage(){
 
 
 void storage_t::remove_item(const std::string& key) noexcept{
+    pthread_mutex_lock(&lock);
     hash_map.erase(key);
+    pthread_mutex_unlock(&lock);
 }

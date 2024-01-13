@@ -29,8 +29,8 @@ thread_pool_t::~thread_pool_t(){
         pthread_cancel(thread_ids[i]);
         pthread_join(thread_ids[i], NULL);
     }
-    delete thread_ids;
-    delete proxy_servers;
+    delete [] thread_ids;
+    delete [] proxy_servers;
 }
 
 

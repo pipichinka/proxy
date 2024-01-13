@@ -55,9 +55,7 @@ int main(int argc, char** argv){
 
 
     for(;;){
-        struct sockaddr_in addr;
-        unsigned int addr_len = sizeof(addr);
-        int sock_fd = accept(sock, (struct sockaddr*) &addr, &addr_len);
+        int sock_fd = accept(sock, NULL, NULL);
         if (sock_fd == -1){
             perror("accept new connection");
             abort();

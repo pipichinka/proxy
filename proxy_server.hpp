@@ -122,7 +122,7 @@ public:
     //thread_safe
     void add_server_socket(int fd);
 
-    void change_cliend_sock_mod(int fd, uint32_t op);
+    void change_sock_mod(int fd, uint32_t op);
     void start_server_loop();
 
     selector_context_t* get_selector_ptr() { return &selector_context;}
