@@ -109,9 +109,11 @@ std::pair<std::string, std::shared_ptr<item_t>> storage_t::get_item(const std::s
     if (it == hash_map.end()){
         std::shared_ptr<item_t> item = std::make_shared<item_t>();
         auto result = hash_map.emplace(key, item);
+        result.first->second->pin();
         pthread_mutex_unlock(&lock);
         return *result.first;
     }
+    it->second->pin();
     pthread_mutex_unlock(&lock);
     return *it;
 }

@@ -19,9 +19,9 @@ class connection_t{
 public:
     connection_t() = default;
 
-    virtual void process_input( [[maybe_unused]] proxy_server_t& server) = 0;
+    virtual bool process_input( [[maybe_unused]] proxy_server_t& server) = 0; // if res is true then connection should be deleted
 
-    virtual void process_output( [[maybe_unused]] proxy_server_t& server) = 0;
+    virtual bool process_output( [[maybe_unused]] proxy_server_t& server) = 0; // if res is true then connection should be deleted
 
     virtual ~connection_t() = default;
 };
@@ -57,9 +57,9 @@ class client_connection_t: public connection_t {
 public:
     client_connection_t(int fd);
 
-    virtual void process_input( [[maybe_unused]] proxy_server_t& server);
+    virtual bool process_input( [[maybe_unused]] proxy_server_t& server);
 
-    virtual void process_output( [[maybe_unused]] proxy_server_t& server);
+    virtual bool process_output( [[maybe_unused]] proxy_server_t& server);
 
     virtual ~client_connection_t();
 };
@@ -100,9 +100,9 @@ class server_connection_t: public connection_t {
 public:
     server_connection_t(std::string&& host, std::string&& request, std::pair<std::string, std::shared_ptr<item_t>>& storage_item, proxy_server_t& server);
 
-    virtual void process_input( [[maybe_unused]] proxy_server_t& server);
+    virtual bool process_input( [[maybe_unused]] proxy_server_t& server);
 
-    virtual void process_output( [[maybe_unused]] proxy_server_t& server);
+    virtual bool process_output( [[maybe_unused]] proxy_server_t& server);
 
     virtual ~server_connection_t();
 
@@ -113,8 +113,12 @@ public:
 class proxy_server_t{
     std::map<int, connection_t*> connections;
     selector_context_t selector_context;
+
+    void erase_connection(int fd, connection_t* connection);
 public:
     explicit proxy_server_t();
+
+    ~proxy_server_t();
 
     //thread_safe
     void add_client_socket(int fd);

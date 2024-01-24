@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <iostream>
+#include <signal.h>
 #include "thread_pool.hpp"
 
 #define ERROR -1
@@ -15,9 +16,17 @@
 
 
 int main(int argc, char** argv){
-    if (argc < 2){
-        std::cout << "proxy usage:\n./proxy <port to listen connections> <num_threads>\n";
+    if (argc < 2 || argc > 3){
+        std::cerr << "proxy usage:\n./proxy <port to listen connections> <num_threads>\n";
         return 0;
+    }
+
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGPIPE);
+	if (pthread_sigmask(SIG_BLOCK, &set, NULL)){
+        perror("can't modify signal mask");
+        return ERROR;
     }
 
     init_global_storage();
@@ -49,6 +58,9 @@ int main(int argc, char** argv){
     size_t num_threads = NUM_THREADS;
     if (argc == 3){
         num_threads = std::stoul(argv[2]);
+        if (num_threads == 0){
+            std::cerr << "expected not 0 number of threads";
+        }
     }
 
     thread_pool_t thread_pool(num_threads);
@@ -58,8 +70,9 @@ int main(int argc, char** argv){
         int sock_fd = accept(sock, NULL, NULL);
         if (sock_fd == -1){
             perror("accept new connection");
-            abort();
+            continue;
         }
         thread_pool.add_new_connection(sock_fd);
+        std::clog << "new socket " << sock_fd << "\n";
     }
 }
