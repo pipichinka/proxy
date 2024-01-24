@@ -318,12 +318,17 @@ bool server_connection_t::process_output(proxy_server_t& server){
     }
 
     if (stage == SV_CONNECT){
-        char tmp_buffer[1];
-        ssize_t res = read(fd, tmp_buffer, 0); // checking if connection complited
+        sockaddr addr;
+        socklen_t len = sizeof(addr);
+        int res = getpeername(fd, &addr, &len);
+        //ssize_t res = read(fd, tmp_buffer, 0); // checking if connection complited
         if (res == 0){
             stage = SV_SEND_REQUEST;
         }
         else {
+            if (errno == ENOTCONN){
+                return false;
+            }
             throw internal_proxy_exception_t("can't connect to server");
         }
     }
