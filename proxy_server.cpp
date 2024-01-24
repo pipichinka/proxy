@@ -1,9 +1,23 @@
 #include "proxy_server.hpp"
+#include "exceptions.hpp"
 #include <unistd.h>
 #include <string.h>
 #include <netdb.h>
 proxy_server_t::proxy_server_t() {
 
+}
+
+void proxy_server_t::erase_connection(int fd, connection_t* connection){
+    connections.erase(fd);
+    selector_context.unregister_file_descriptor(fd);
+    delete connection;
+}
+
+
+proxy_server_t::~proxy_server_t(){
+    for (auto con: connections){
+        delete con.second;
+    }
 }
 
 
@@ -22,7 +36,6 @@ void proxy_server_t::start_server_loop(){
                 auto res = connections.emplace(fd, connection);
                 if (!res.second){
                     selector_context.unregister_file_descriptor(fd);
-                    close(fd);
                     delete connection;
                     continue;
                 }
@@ -30,26 +43,28 @@ void proxy_server_t::start_server_loop(){
             else{
                 connection = it->second;
             }
+
             try {
                 if (event & (EPOLLERR|EPOLLHUP)) {
-                    std::cout << "connection close event " << event << "\n";
-                    connections.erase(fd);
-                    selector_context.unregister_file_descriptor(fd);
-                    delete connection;
+                    erase_connection(fd, connection);
                     continue;
                 }
                 if (event & READ){
-                    connection->process_input(*this);
+                    if (connection->process_input(*this)){
+                        erase_connection(fd, connection);
+                        continue;
+                    }
                 }
                 if (event & WRITE){
-                    connection->process_output(*this);
+                    if (connection->process_output(*this)){
+                        erase_connection(fd, connection);
+                        continue;
+                    }
                 }
             }
             catch(const std::exception& e){
-                std::cout << e.what() << "\n";
-                connections.erase(fd);
-                selector_context.unregister_file_descriptor(fd);
-                delete connection;
+                std::clog << e.what() << "\n";
+                erase_connection(fd, connection);
             }
             
 
@@ -63,7 +78,7 @@ void proxy_server_t::add_client_socket(int fd){
 }
 
 
-void proxy_server_t::change_cliend_sock_mod(int fd, uint32_t op){
+void proxy_server_t::change_sock_mod(int fd, uint32_t op){
     selector_context.change_descriptor_mode(fd, op);
 }
 
@@ -77,7 +92,7 @@ void proxy_server_t::add_new_connection(int fd, connection_t* con){
     auto res = connections.emplace(fd, con);
     if (!res.second){
         delete con;
-        throw std::runtime_error("can't add new connection");
+        throw internal_proxy_exception_t("can't add new connection");
     }
 }
 
@@ -99,6 +114,7 @@ void change_http_version_in_message(std::string& request, size_t http_ver_index,
 
 
 void client_connection_t::change_to_write_stage(proxy_server_t& server){
+    std::clog << "client with sock_fd " << fd << " fully parsed request\n"; 
     auto item = storage->get_item(host + url);
     if (!item.second->is_started()){
         bool res = item.second->set_started(true);
@@ -108,15 +124,15 @@ void client_connection_t::change_to_write_stage(proxy_server_t& server){
         }
     }
     storage_item = item.second;
-    server.change_cliend_sock_mod(fd, WRITE);
+    server.change_sock_mod(fd, WRITE);
     stage = client_stages::CL_SEND_ANSWER;
 }
 
 
 
-void client_connection_t::process_input( [[maybe_unused]] proxy_server_t& server){
+bool client_connection_t::process_input( [[maybe_unused]] proxy_server_t& server){
     if (stage == client_stages::CL_SEND_ANSWER){
-        return;
+        return false;
     }
 
     /*
@@ -127,31 +143,31 @@ void client_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
     char read_buffer[MAX_ONE_TIME_READ];
     int res = read(fd, read_buffer, MAX_ONE_TIME_READ);
     if (res == 0){
-        throw std::runtime_error("client closed socket");
+        throw internal_proxy_exception_t("client closed socket");
     }
     else if (res == -1){
         /*
          * А откуда EWOULDBLOCK? Ты же не делаешь сокет неблокирующимся?
          * */
         if (errno == EAGAIN || errno == EWOULDBLOCK){
-            return;
+            return false;
         }
-        throw std::runtime_error(strerror(errno));
+        throw internal_proxy_exception_t(strerror(errno));
     }
 
     request.append(read_buffer, res);
     if (stage == client_stages::CL_READ_FIRST_LINE){
         size_t end_line_pos = request.find("\r\n");
         if (end_line_pos == std::string::npos){
-            return;
+            return false;
         }
 
         if (request.substr(0, 3) != "GET"){
-            throw std::runtime_error("unsuportable protocol operation");
+            throw http_exception_t("unsuportable protocol operation");
         }
         size_t last_space_pos = request.find_last_of(" ", end_line_pos);
         if (last_space_pos == std::string::npos){
-            throw std::runtime_error("invalid GET request header");
+            throw http_exception_t("invalid GET request header");
         }
         change_http_version_in_message(request, last_space_pos + 1, end_line_pos - 1 - last_space_pos);
         url = request.substr(4, last_space_pos - 4);
@@ -163,18 +179,18 @@ void client_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
         while(last_unparsed_line_start < request.length()){
             size_t end_line_pos = request.find("\r\n", last_unparsed_line_start);
             if (end_line_pos == std::string::npos){
-                return;
+                return false;
             }
 
             if (last_unparsed_line_start == end_line_pos){
                 change_to_write_stage(server);
-                return;
+                return false;
             }
 
             std::string line = request.substr(last_unparsed_line_start, end_line_pos - last_unparsed_line_start);
             size_t param_end_index = line.find(':');
             if (param_end_index == std::string::npos){
-                throw std::runtime_error("invalid parametr in HTTP header");
+                throw http_exception_t("invalid parametr in HTTP header");
             }
 
             if (line.substr(0, param_end_index) == "Host"){
@@ -189,41 +205,43 @@ void client_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
         size_t end_pos = request.find_last_of("\r\n\r\n");
         if (end_pos != std::string::npos){
             change_to_write_stage(server);
-            return;
+            return false;
         }
     }
+    return false;
 }  
 
 
 
-void client_connection_t::process_output([[maybe_unused]] proxy_server_t& server){
+bool client_connection_t::process_output([[maybe_unused]] proxy_server_t& server){
     if (stage != client_stages::CL_SEND_ANSWER){
-        return;
+        return false;
     }
 
     std::string buffer;
     
     int res = storage_item->get_data(buffer, send_offset, MAX_ONE_TIME_WRITE, wait_context_t(fd, server.get_selector_ptr()));
     if (res == -1){
-        throw std::runtime_error("sended all answer");
+        return true;
     }
 
     if (res == 0){ // we wait untill data arive in storage_item
-        return;
+        return false;
     }
 
     ssize_t send_res = write(fd, buffer.c_str(), buffer.length());
     if (send_res == -1){
         if (errno == EAGAIN){
-            return;
+            return false;
         }
-        throw std::runtime_error(strerror(errno));
+        throw internal_proxy_exception_t(strerror(errno));
     }
     if (send_res == 0){
-        throw std::runtime_error("client closed socket");
+        return true;
     }
 
     send_offset += static_cast<size_t>(send_res);
+    return false;
 }
 
 
@@ -231,15 +249,16 @@ client_connection_t::~client_connection_t(){
     if (storage_item){
         storage_item->un_pin(fd);
     }
+    std::clog << "close client connection sock_fd: " << fd << "\n";
     close(fd);
 }
 
 
 
 server_connection_t::server_connection_t(std::string&& host, std::string&& request, std::pair<std::string, std::shared_ptr<item_t>>& storage_item, proxy_server_t& server):
-    request_to_send(request), request_offset(0), storage_item(storage_item), content_len(-1), content_offset(0),  host(host), http_code(0), stage(SV_CONNECT) {
+    request_to_send(request), request_offset(0), storage_item(storage_item), content_len(-1), content_offset(0),  host(host), http_code(0), stage(SV_CONNECT), is_removed_due_to_unused(false) {
     
-
+    
     struct addrinfo hints;
     struct addrinfo *result;
     int s;
@@ -256,15 +275,15 @@ server_connection_t::server_connection_t(std::string&& host, std::string&& reque
      * но обрабатываться так, чтобы никогда не блокироваться на операциях чтения/записи
      * */
     fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-
+    std::clog << "server connection on sock_fd: " << fd << "  for url: "<< storage_item.first << "\n";
 
     s = getaddrinfo(this->host.c_str(), service, &hints, &result);
     if (s != 0) {
-        throw std::runtime_error(strerror(errno));
+        throw internal_proxy_exception_t(strerror(errno));
     }
 
     int res = connect(fd, result->ai_addr, result->ai_addrlen);
-
+    freeaddrinfo(result);
     if (res == 0){
         stage = SV_SEND_REQUEST;
         server.add_server_socket(fd);
@@ -277,20 +296,40 @@ server_connection_t::server_connection_t(std::string&& host, std::string&& reque
     else {
         close(fd);
     }
-    freeaddrinfo(result);
 }
 
 
 server_connection_t::~server_connection_t(){
+    std::clog << "close server connection sock_fd: " << fd << "\n";
     close(fd);
-    storage_item.second->set_complited(true);
-    if (http_code != 200){
+    storage_item.second->set_completed(true);
+    if (http_code != 200 || is_removed_due_to_unused){
         storage->remove_item(storage_item.first);
+        std::clog << "remove item from storage for key: " << storage_item.first << "\n";
+        return;
+    }
+    if (content_len > 0 && static_cast<size_t>(content_len) != content_offset){
+        storage->remove_item(storage_item.first);
+        std::clog << "didn't recieve full content from server expected: " << content_len << " get: " << content_offset << "\n"; 
     }
 }
 
 
-void server_connection_t::process_output(proxy_server_t& server){
+bool server_connection_t::check_usage(){
+    if (storage_item.second->get_pin_count() == 0){
+        bool res = storage->try_remove_if_unused(storage_item);
+        is_removed_due_to_unused = res;
+        return res;
+    }
+    return false;
+}
+
+
+bool server_connection_t::process_output(proxy_server_t& server){
+    if (check_usage()){
+        return true;
+    }
+
     if (stage == SV_CONNECT){
         char tmp_buffer[1];
         ssize_t res = read(fd, tmp_buffer, 0); // checking if connection complited
@@ -298,42 +337,46 @@ void server_connection_t::process_output(proxy_server_t& server){
             stage = SV_SEND_REQUEST;
         }
         else {
-            throw std::runtime_error("can't connect to server");
+            throw internal_proxy_exception_t("can't connect to server");
         }
     }
 
     if (stage != SV_SEND_REQUEST){
-        return;
+        return false;
     }
 
     ssize_t res = write(fd, request_to_send.c_str() + request_offset, 
                         std::min(request_to_send.length() - request_offset, (unsigned long) MAX_ONE_TIME_WRITE));
 
     if (res == 0){
-        throw std::runtime_error("connection is closed by the server");
+        throw internal_proxy_exception_t("connection is closed by the server");
     }
     if (res == -1){
         if (errno == EAGAIN){
-            return;
+            return false;
         }
-        throw std::runtime_error(strerror(errno));
+        throw internal_proxy_exception_t(strerror(errno));
     }
 
     request_offset += res;
 
     if (request_offset == request_to_send.length()){
+        std::clog << "request fully sended to server on socket_fd: " << fd << "\n";
         request_to_send.clear();
         stage = server_stages::SV_READ_FIRST_LINE;
-        server.change_cliend_sock_mod(fd, READ);
+        server.change_sock_mod(fd, READ);
     }
+    return false;
 }
 
 
-void server_connection_t::process_input( [[maybe_unused]] proxy_server_t& server){
-    
+bool server_connection_t::process_input( [[maybe_unused]] proxy_server_t& server){
+    if (check_usage()){
+        return true;
+    }
 
     if (stage != server_stages::SV_READ_FIRST_LINE && stage != server_stages::SV_READ_TILL_END && stage != server_stages::SV_READ_HEADERS){
-        return;
+        return false;
     }
 
     char read_buffer[MAX_ONE_TIME_READ];
@@ -343,17 +386,17 @@ void server_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
         if (stage != server_stages::SV_READ_TILL_END){
             storage_item.second->put_data(tmp_answer_buffer);
         }
-        throw std::runtime_error("connection is closed by the server");
+        return true;
     }
     if (res == -1){
         if (errno == EAGAIN){
-            return;
+            return false;
         }
 
         if (stage == server_stages::SV_READ_FIRST_LINE || stage == server_stages::SV_READ_HEADERS){
             storage_item.second->put_data(tmp_answer_buffer);
         }
-        throw std::runtime_error(strerror(errno));
+        throw internal_proxy_exception_t(strerror(errno));
     }
 
     if (stage == server_stages::SV_READ_FIRST_LINE || stage == server_stages::SV_READ_HEADERS){
@@ -363,13 +406,13 @@ void server_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
     if (stage == server_stages::SV_READ_FIRST_LINE){
         size_t end_line_pos = tmp_answer_buffer.find("\r\n");
         if (end_line_pos == std::string::npos){
-            return;
+            return false;
         }
 
         size_t first_space_pos = tmp_answer_buffer.find(" ");
         
         if (first_space_pos == std::string::npos || first_space_pos > end_line_pos){
-            throw std::runtime_error("invalid answer format");
+            throw http_exception_t("invalid answer format");
         }
 
         std::string code_string = tmp_answer_buffer.substr(first_space_pos + 1, 3);
@@ -380,6 +423,8 @@ void server_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
         size_t size_after_change = tmp_answer_buffer.length();
         stage = server_stages::SV_READ_HEADERS;
         last_unparsed_line_start = end_line_pos + 2 + (size_after_change - size_before_change);
+
+        std::clog << "recieved http_code: " << http_code << "  on server connection sock_fd: " << fd << "\n";
     }
 
     if (stage == server_stages::SV_READ_HEADERS){
@@ -387,21 +432,21 @@ void server_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
 
             size_t end_line_pos = tmp_answer_buffer.find("\r\n", last_unparsed_line_start);
             if (end_line_pos == std::string::npos){
-                return;
+                return false;
             }
 
             if (last_unparsed_line_start == end_line_pos){
                 stage = server_stages::SV_READ_TILL_END; 
                 storage_item.second->put_data(tmp_answer_buffer);
-                content_offset = tmp_answer_buffer.length() - (end_line_pos + 3);
+                content_offset = tmp_answer_buffer.length() - (end_line_pos + 2);
                 tmp_answer_buffer.clear();
-                return;
+                return false;
             }
 
             std::string line = tmp_answer_buffer.substr(last_unparsed_line_start, end_line_pos - last_unparsed_line_start);
             size_t param_end_index = line.find(':');
             if (param_end_index == std::string::npos){
-                throw std::runtime_error("invalid parametr in HTTP header");
+                throw http_exception_t("invalid parametr in HTTP header");
             }
 
             if (line.substr(0, param_end_index) == "Content-Length"){
@@ -424,8 +469,10 @@ void server_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
         storage_item.second->put_data(current_data);
 
         if (static_cast<ssize_t> (content_offset) == content_len){
-            storage_item.second->set_complited(true);
-            throw std::runtime_error("server connection finished downloading data");
+            std::clog << "data from server is fully obtained on server connection sock_fd: " << fd << "\n";
+            storage_item.second->set_completed(true);
+            return true;
         }
     }
+    return false;
 }

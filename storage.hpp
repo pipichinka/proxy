@@ -12,7 +12,7 @@
 class item_t{
     std::string data;
     bool started;
-    bool compleated;
+    bool completed;
     pthread_rwlock_t rw_lock;
     int pin_count;
     std::vector<wait_context_t> waiting_clients;
@@ -27,8 +27,8 @@ public:
         return -1 if offset == data.lenght && complited
     */
     int get_data(std::string& dst, size_t offset, size_t limit, const wait_context_t& wait_context) noexcept; 
-    void set_complited(bool val) noexcept;
-    bool is_compleated() const noexcept {return compleated;}
+    void set_completed(bool val) noexcept;
+    bool is_compleated() const noexcept {return completed;}
     bool set_started(bool val) noexcept;
     bool is_started() const noexcept {return started;}
     ~item_t();
@@ -41,6 +41,7 @@ class storage_t{
 public:
     explicit storage_t();
     std::pair<std::string, std::shared_ptr<item_t>> get_item(const std::string& key) noexcept;
+    bool try_remove_if_unused(std::pair<std::string, std::shared_ptr<item_t>>& pair); //return true on removal
     void remove_item(const std::string& key) noexcept;
     ~storage_t();
 };
