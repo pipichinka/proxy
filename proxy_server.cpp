@@ -114,6 +114,7 @@ void change_http_version_in_message(std::string& request, size_t http_ver_index,
 
 
 void client_connection_t::change_to_write_stage(proxy_server_t& server){
+    std::clog << "client with sock_fd " << fd << " fully parsed request\n"; 
     auto item = storage->get_item(host + url);
     if (!item.second->is_started()){
         bool res = item.second->set_started(true);

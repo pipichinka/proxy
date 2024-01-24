@@ -59,7 +59,8 @@ int main(int argc, char** argv){
     if (argc == 3){
         num_threads = std::stoul(argv[2]);
         if (num_threads == 0){
-            std::cerr << "expected not 0 number of threads";
+            std::cerr << "expected not 0 number of threads\n";
+            return ERROR;
         }
     }
 
@@ -75,4 +76,6 @@ int main(int argc, char** argv){
         thread_pool.add_new_connection(sock_fd);
         std::clog << "new socket " << sock_fd << "\n";
     }
+
+    return 0;
 }
