@@ -142,11 +142,11 @@ void storage_t::remove_item(const std::string& key) noexcept{
 
 bool storage_t::try_remove_if_unused(std::pair<std::string, std::shared_ptr<item_t>>& pair){
     pthread_mutex_lock(&lock);
-    pthread_mutex_unlock(&lock);
     if (pair.second->get_pin_count() == 0){
         hash_map.erase(pair.first);
-
+        pthread_mutex_unlock(&lock);
         return true;
-    }  
+    } 
+    pthread_mutex_unlock(&lock); 
     return false;
 }
