@@ -247,7 +247,7 @@ client_connection_t::~client_connection_t(){
 
 
 server_connection_t::server_connection_t(std::string&& host, std::string&& request, std::pair<std::string, std::shared_ptr<item_t>>& storage_item, proxy_server_t& server):
-    request_to_send(request), request_offset(0), storage_item(storage_item), content_len(-1), content_offset(0),  host(host), http_code(0), stage(SV_CONNECT) {
+    request_to_send(request), request_offset(0), storage_item(storage_item), content_len(-1), content_offset(0),  host(host), http_code(0), stage(SV_CONNECT), is_removed_due_to_unused(false) {
     
     
     struct addrinfo hints;
@@ -288,8 +288,9 @@ server_connection_t::~server_connection_t(){
     std::clog << "close server connection sock_fd: " << fd << "\n";
     close(fd);
     storage_item.second->set_completed(true);
-    if (http_code != 200){
+    if (http_code != 200 || is_removed_due_to_unused){
         storage->remove_item(storage_item.first);
+        std::clog << "remove item from storage for key: " << storage_item.first << "\n";
         return;
     }
     if (content_len > 0 && static_cast<size_t>(content_len) != content_offset){
@@ -299,7 +300,21 @@ server_connection_t::~server_connection_t(){
 }
 
 
+bool server_connection_t::check_usage(){
+    if (storage_item.second->get_pin_count() == 0){
+        bool res = storage->try_remove_if_unused(storage_item);
+        is_removed_due_to_unused = res;
+        return res;
+    }
+    return false;
+}
+
+
 bool server_connection_t::process_output(proxy_server_t& server){
+    if (check_usage()){
+        return true;
+    }
+
     if (stage == SV_CONNECT){
         char tmp_buffer[1];
         ssize_t res = read(fd, tmp_buffer, 0); // checking if connection complited
@@ -341,7 +356,9 @@ bool server_connection_t::process_output(proxy_server_t& server){
 
 
 bool server_connection_t::process_input( [[maybe_unused]] proxy_server_t& server){
-    
+    if (check_usage()){
+        return true;
+    }
 
     if (stage != server_stages::SV_READ_FIRST_LINE && stage != server_stages::SV_READ_TILL_END && stage != server_stages::SV_READ_HEADERS){
         return false;

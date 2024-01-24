@@ -41,6 +41,7 @@ class storage_t{
 public:
     explicit storage_t();
     std::pair<std::string, std::shared_ptr<item_t>> get_item(const std::string& key) noexcept;
+    bool try_remove_if_unused(std::pair<std::string, std::shared_ptr<item_t>>& pair); //return true on removal
     void remove_item(const std::string& key) noexcept;
     ~storage_t();
 };

@@ -97,6 +97,11 @@ class server_connection_t: public connection_t {
     int http_code;
 
     enum server_stages stage;
+
+    bool is_removed_due_to_unused;
+
+    bool check_usage(); //return true if storage_item is removed from sotorage due to pin_count = 0
+
 public:
     server_connection_t(std::string&& host, std::string&& request, std::pair<std::string, std::shared_ptr<item_t>>& storage_item, proxy_server_t& server);
 
