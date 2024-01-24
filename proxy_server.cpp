@@ -191,6 +191,7 @@ bool client_connection_t::process_input( [[maybe_unused]] proxy_server_t& server
                 stage = client_stages::CL_READ_TILL_END;
                 break;
             }
+            last_unparsed_line_start = end_line_pos + 2;
         }
     }
     if (stage == client_stages::CL_READ_TILL_END){
